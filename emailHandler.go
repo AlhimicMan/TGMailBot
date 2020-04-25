@@ -15,6 +15,7 @@ type EmailBoxHandler struct {
 	eAccount     *StoredEmailAccount
 	user         *StoredUser
 	lastMsgId    uint32
+	lastMsgTime  int64
 	isRestart    bool
 	connectionOk bool
 	stop         chan struct{}
@@ -22,10 +23,11 @@ type EmailBoxHandler struct {
 
 func NewEmailBoxHandler(eAccount *StoredEmailAccount, user *StoredUser) *EmailBoxHandler {
 	return &EmailBoxHandler{
-		eAccount:  eAccount,
-		user:      user,
-		lastMsgId: 0,
-		stop:      make(chan struct{}, 1),
+		eAccount:    eAccount,
+		user:        user,
+		lastMsgId:   0,
+		lastMsgTime: time.Now().Unix(),
+		stop:        make(chan struct{}, 1),
 	}
 }
 
@@ -89,7 +91,7 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 
 	if !handler.connectionOk {
 		handler.connectionOk = true
-		uMsg := fmt.Sprintf("Successfully connected to mailbox for %s\nLast message:", handler.eAccount.login)
+		uMsg := fmt.Sprintf("Successfully connected to mailbox for %s", handler.eAccount.login)
 		handler.SendMessageToUser(uMsg)
 	}
 
@@ -98,19 +100,13 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if handler.lastMsgId >= mbox.Messages {
-		//Wait longer
-		//fmt.Println("No new emails")
-		handler.lastMsgId = mbox.Messages
-		return
-	}
+
 	fmt.Println("Fetching emails")
-	if handler.lastMsgId == 0 {
-		handler.lastMsgId = mbox.Messages
-	}
+	//always get last 20 messages and compare time with of last known
+	from := mbox.Messages - 19
 	to := mbox.Messages
 	seqset := new(imap.SeqSet)
-	seqset.AddRange(handler.lastMsgId, to)
+	seqset.AddRange(from, to)
 
 	messages := make(chan *imap.Message, 100)
 	done := make(chan error, 1)
@@ -119,6 +115,11 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 	}()
 
 	for msg := range messages {
+		msgTime := msg.Envelope.Date.Unix()
+		if msgTime <= handler.lastMsgTime {
+			continue
+		}
+		handler.lastMsgTime = msgTime
 		if handler.CheckPatterns(msg) {
 			newUserMsg := fmt.Sprintf("At: %s\n", msg.Envelope.Date.Format("2006-01-02 15:04:05"))
 			newUserMsg += fmt.Sprintf("Account: %s\n", handler.eAccount.login)

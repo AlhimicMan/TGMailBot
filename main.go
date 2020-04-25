@@ -27,6 +27,8 @@ const (
 	ChangePattern = "Change patterns"
 )
 
+var knownServers = map[string]string{"@mail.ru": "imap.mail.ru:993"}
+
 var bot *tgbotapi.BotAPI
 
 type UserManager struct {
@@ -82,9 +84,39 @@ func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user
 	if msg == "/addaccount" || h.newEmailAccount == nil || msg == AddAccount {
 		h.newEmailAccount = &StoredEmailAccount{}
 		h.lastCommand = "/addaccount"
-		msgText := "Enter imap host in format: <host/IP>:<port>"
+		msgText := "Enter email address:"
 		return h.makeTGMessage(msgText, user)
 	}
+	if h.newEmailAccount.login == "" {
+		aIndex := strings.Index(msg, "@")
+		if aIndex <= 0 {
+			msgText := fmt.Sprintf("Wrong format for login, please set <login>@<domain>")
+			return h.makeTGMessage(msgText, user)
+		}
+		loginRunes := []rune(msg)
+		domain := string(loginRunes[aIndex:])
+		imapHost, ok := knownServers[domain]
+		if ok {
+			h.newEmailAccount.imapHost = imapHost
+		}
+		for _, boxHandler := range user.emailBoxHandlers {
+			account := boxHandler.eAccount
+			if (account.imapHost == h.newEmailAccount.imapHost) && (account.login == msg) {
+				msgText := fmt.Sprintf("You already have account with this email for this host. Use /changeaccount to change account settings")
+				return h.makeTGMessage(msgText, user)
+			}
+		}
+		h.newEmailAccount.login = msg
+		msgText := fmt.Sprintf("Successfully added login: %s\n", h.newEmailAccount.login)
+		if h.newEmailAccount.imapHost == "" {
+			msgText += "Enter imap host in format: <host/IP>:<port>"
+		} else {
+			msgText += "Found host for your login: " + h.newEmailAccount.imapHost + "\n"
+			msgText += "Now set email account password (message with password will be removed):"
+		}
+		return h.makeTGMessage(msgText, user)
+	}
+
 	if h.newEmailAccount.imapHost == "" {
 		imapHost := msg
 		hostSpl := strings.Split(msg, ":")
@@ -117,20 +149,7 @@ func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user
 			return h.makeTGMessage(msgText, user)
 		}
 		h.newEmailAccount.imapHost = imapHost + ":" + strconv.Itoa(imapPort)
-		msgText := fmt.Sprintf("Successfully added imap host: %s\nNow sent email address:", h.newEmailAccount.imapHost)
-		return h.makeTGMessage(msgText, user)
-	}
-
-	if h.newEmailAccount.login == "" {
-		for _, boxHandler := range user.emailBoxHandlers {
-			account := boxHandler.eAccount
-			if (account.imapHost == h.newEmailAccount.imapHost) && (account.login == msg) {
-				msgText := fmt.Sprintf("You already have account with this email for this host. Use /changeaccount to change account settings")
-				return h.makeTGMessage(msgText, user)
-			}
-		}
-		h.newEmailAccount.login = msg
-		msgText := fmt.Sprintf("Successfully added login: %s\n Now set email account password (message with password will be removed):", h.newEmailAccount.login)
+		msgText := fmt.Sprintf("Successfully added imap host: %s\nNow set email account password (message with password will be removed):", h.newEmailAccount.imapHost)
 		return h.makeTGMessage(msgText, user)
 	}
 
