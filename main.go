@@ -52,9 +52,10 @@ type NotifyPatterns struct {
 }
 
 type StoredUser struct {
-	ID     int
-	Login  string
-	ChatID int64
+	ID            int
+	Login         string
+	ChatID        int64
+	LastMessageId int
 	//EmailAccounts []*StoredEmailAccount
 	SearchPatterns   []string
 	dialogHandler    *UserDialogHandler
@@ -134,7 +135,7 @@ func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user
 	}
 
 	if h.newEmailAccount.password == "" {
-		delMsg := tgbotapi.NewDeleteMessage(inMsg.Chat.ID, inMsg.MessageID)
+		delMsg := tgbotapi.NewDeleteMessage(user.ChatID, user.LastMessageId)
 		_, err := bot.DeleteMessage(delMsg)
 		if err != nil {
 			log.Println("Error deleting password message", err)
@@ -217,6 +218,11 @@ func (h *UserDialogHandler) ChangeEmailAccountHandler(msg string, user *StoredUs
 		rMsgText := ""
 		switch h.lastSubCommand {
 		case "chpwd":
+			delMsg := tgbotapi.NewDeleteMessage(user.ChatID, user.LastMessageId)
+			_, err := bot.DeleteMessage(delMsg)
+			if err != nil {
+				log.Println("Error deleting password message", err)
+			}
 			h.newEmailAccount.password = msg
 			rMsgText = "Password changed."
 			if h.newEmailAccount.isActive {
@@ -281,7 +287,12 @@ func (h *UserDialogHandler) SelectEmailAccountCallback(accountID string, user *S
 	}
 
 	if h.newEmailAccount != nil {
-		resultStr := "Account selected\n"
+		resultStr := ""
+		if h.newEmailAccount.isActive {
+			resultStr += "Account is active\n"
+		} else {
+			resultStr += "Account disabled\n"
+		}
 		resultStr += fmt.Sprintf("Login: %s\n", h.newEmailAccount.login)
 		resultStr += fmt.Sprintf("IMAP host: %s\n", h.newEmailAccount.imapHost)
 		changeTimeoutTest := fmt.Sprintf("Change timeout (now %d min)", h.newEmailAccount.updateT)
@@ -665,6 +676,7 @@ func main() {
 			inMsg := update.Message
 
 			userProfile := botUsersManager.CheckUser(update.Message.From, inMsg.Chat.ID)
+			userProfile.LastMessageId = inMsg.MessageID
 
 			inMsgText := update.Message.Text
 

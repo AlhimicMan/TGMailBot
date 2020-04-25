@@ -89,7 +89,7 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 
 	if !handler.connectionOk {
 		handler.connectionOk = true
-		uMsg := fmt.Sprintf("Successfully connected to mailbox for %s", handler.eAccount.login)
+		uMsg := fmt.Sprintf("Successfully connected to mailbox for %s\nLast message:", handler.eAccount.login)
 		handler.SendMessageToUser(uMsg)
 	}
 
@@ -98,9 +98,10 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if handler.lastMsgId == mbox.Messages {
+	if handler.lastMsgId >= mbox.Messages {
 		//Wait longer
 		//fmt.Println("No new emails")
+		handler.lastMsgId = mbox.Messages
 		return
 	}
 	fmt.Println("Fetching emails")
