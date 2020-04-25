@@ -76,7 +76,8 @@ func (h *UserDialogHandler) makeTGMessage(msgText string, user *StoredUser) (*tg
 }
 
 // AddEmailAccountHandler handles addaccount command
-func (h *UserDialogHandler) AddEmailAccountHandler(msg string, user *StoredUser) (*tgbotapi.MessageConfig, error) {
+func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user *StoredUser) (*tgbotapi.MessageConfig, error) {
+	msg := inMsg.Text
 	if msg == "/addaccount" || h.newEmailAccount == nil || msg == AddAccount {
 		h.newEmailAccount = &StoredEmailAccount{}
 		h.lastCommand = "/addaccount"
@@ -128,11 +129,16 @@ func (h *UserDialogHandler) AddEmailAccountHandler(msg string, user *StoredUser)
 			}
 		}
 		h.newEmailAccount.login = msg
-		msgText := fmt.Sprintf("Successfully added login: %s\n Now set email account password:", h.newEmailAccount.login)
+		msgText := fmt.Sprintf("Successfully added login: %s\n Now set email account password (message with password will be removed):", h.newEmailAccount.login)
 		return h.makeTGMessage(msgText, user)
 	}
 
 	if h.newEmailAccount.password == "" {
+		delMsg := tgbotapi.NewDeleteMessage(inMsg.Chat.ID, inMsg.MessageID)
+		_, err := bot.DeleteMessage(delMsg)
+		if err != nil {
+			log.Println("Error deleting password message", err)
+		}
 		h.newEmailAccount.password = msg
 		msgText := fmt.Sprintf("Successfully added password.\nNow set update timeout in minutes:")
 		return h.makeTGMessage(msgText, user)
@@ -657,6 +663,7 @@ func main() {
 		}
 		if update.Message != nil {
 			inMsg := update.Message
+
 			userProfile := botUsersManager.CheckUser(update.Message.From, inMsg.Chat.ID)
 
 			inMsgText := update.Message.Text
@@ -684,7 +691,8 @@ func main() {
 			case "/start":
 				msg = userProfile.dialogHandler.SetInitialKeyboard(userProfile.ChatID)
 			case "/addaccount":
-				msg, err = userProfile.dialogHandler.AddEmailAccountHandler(inMsgText, userProfile)
+				msg, err = userProfile.dialogHandler.AddEmailAccountHandler(inMsg, userProfile)
+
 				if err != nil {
 					log.Println("Error creating account")
 					continue

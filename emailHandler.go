@@ -12,11 +12,12 @@ import (
 
 //EmailBoxHandler used for handling email checks and sending notifications to user
 type EmailBoxHandler struct {
-	eAccount  *StoredEmailAccount
-	user      *StoredUser
-	lastMsgId uint32
-	isRestart bool
-	stop      chan struct{}
+	eAccount     *StoredEmailAccount
+	user         *StoredUser
+	lastMsgId    uint32
+	isRestart    bool
+	connectionOk bool
+	stop         chan struct{}
 }
 
 func NewEmailBoxHandler(eAccount *StoredEmailAccount, user *StoredUser) *EmailBoxHandler {
@@ -29,40 +30,13 @@ func NewEmailBoxHandler(eAccount *StoredEmailAccount, user *StoredUser) *EmailBo
 }
 
 func (handler *EmailBoxHandler) StartFetchingEmails() {
-	log.Println("Connecting to server...")
-
-	// Connect to server
-	c, err := client.DialTLS(handler.eAccount.imapHost, nil)
 	errMsg := ""
-	if err != nil {
+	handler.FetchNewEmails()
+	if !handler.connectionOk {
 		handler.eAccount.isActive = false
-		errMsg = fmt.Sprintf("Error connecting to imap server: %s", handler.eAccount.imapHost)
-		handler.SendMessageToUser(errMsg)
 		return
 	}
-
-	// Don't forget to logout
-	defer c.Logout()
-
-	// Login
-	if err := c.Login(handler.eAccount.login, handler.eAccount.password); err != nil {
-		handler.eAccount.isActive = false
-		errMsg = fmt.Sprintf("Error authenticating in account: %s", handler.eAccount.login)
-		handler.SendMessageToUser(errMsg)
-		return
-	}
-
-	uMsg := fmt.Sprintf("Successfully connected to mailbox for %s", handler.eAccount.login)
-	handler.SendMessageToUser(uMsg)
-
-	// Select INBOX
-	mbox, err := c.Select("INBOX", false)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	handler.FetchNewEmails(c, mbox)
-	ticker := time.NewTicker(time.Duration(handler.eAccount.updateT*10) * time.Second)
+	ticker := time.NewTicker(time.Duration(handler.eAccount.updateT) * time.Minute)
 MSGGETTINGLOOP:
 	for {
 		select {
@@ -74,11 +48,10 @@ MSGGETTINGLOOP:
 			}
 			break MSGGETTINGLOOP
 		case <-ticker.C:
-			fmt.Println("Ticked")
 			if !handler.eAccount.isActive {
 				handler.stop <- struct{}{}
 			} else {
-				handler.FetchNewEmails(c, mbox)
+				handler.FetchNewEmails()
 			}
 		}
 	}
@@ -90,8 +63,41 @@ MSGGETTINGLOOP:
 	}
 }
 
-func (handler *EmailBoxHandler) FetchNewEmails(c *client.Client, mbox *imap.MailboxStatus) {
+func (handler *EmailBoxHandler) FetchNewEmails() {
+	// Connect to server
+	c, err := client.DialTLS(handler.eAccount.imapHost, nil)
+	errMsg := ""
+	if err != nil {
+		handler.eAccount.isActive = false
+		errMsg = fmt.Sprintf("Error connecting to imap server: %s", handler.eAccount.imapHost)
+		handler.SendMessageToUser(errMsg)
+		handler.connectionOk = false
+		return
+	}
 
+	// Don't forget to logout
+	defer c.Logout()
+
+	// Login
+	if err := c.Login(handler.eAccount.login, handler.eAccount.password); err != nil {
+		handler.eAccount.isActive = false
+		errMsg = fmt.Sprintf("Error authenticating in account: %s", handler.eAccount.login)
+		handler.connectionOk = false
+		handler.SendMessageToUser(errMsg)
+		return
+	}
+
+	if !handler.connectionOk {
+		handler.connectionOk = true
+		uMsg := fmt.Sprintf("Successfully connected to mailbox for %s", handler.eAccount.login)
+		handler.SendMessageToUser(uMsg)
+	}
+
+	// Select INBOX
+	mbox, err := c.Select("INBOX", false)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if handler.lastMsgId == mbox.Messages {
 		//Wait longer
 		//fmt.Println("No new emails")
