@@ -154,11 +154,11 @@ func (handler *EmailBoxHandler) CheckPatterns(msg *imap.Message) bool {
 			for _, sAddr := range msg.Envelope.From {
 				msgMaiBoxes := strings.ToLower(sAddr.MailboxName)
 				msgPerson := strings.ToLower(sAddr.PersonalName)
-				if strings.Contains(msgMaiBoxes, uPattern.FromEmail) {
+				if msgMaiBoxes == uPattern.FromEmail {
 					sendEmail = true
 					break
 				}
-				if strings.Contains(msgPerson, uPattern.FromPersonalName) {
+				if msgPerson == uPattern.FromPersonalName {
 					sendEmail = true
 					break
 				}

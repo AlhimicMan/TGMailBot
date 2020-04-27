@@ -50,7 +50,6 @@ type NotifyPatterns struct {
 	FromEmail        string
 	FromPersonalName string
 	Subject          string
-	ContentKeyword   string
 }
 
 type StoredUser struct {
@@ -148,7 +147,15 @@ func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user
 			msgText := fmt.Sprintf("Invalid hostname for imap server %s", msg)
 			return h.makeTGMessage(msgText, user)
 		}
-		h.newEmailAccount.imapHost = imapHost + ":" + strconv.Itoa(imapPort)
+		newImapHost := imapHost + ":" + strconv.Itoa(imapPort)
+		for _, boxHandler := range user.emailBoxHandlers {
+			account := boxHandler.eAccount
+			if (account.imapHost == newImapHost) && (account.login == h.newEmailAccount.login) {
+				msgText := fmt.Sprintf("You already have account with this email for this host. Use /changeaccount to change account settings")
+				return h.makeTGMessage(msgText, user)
+			}
+		}
+		h.newEmailAccount.imapHost = newImapHost
 		msgText := fmt.Sprintf("Successfully added imap host: %s\nNow set email account password (message with password will be removed):", h.newEmailAccount.imapHost)
 		return h.makeTGMessage(msgText, user)
 	}
@@ -176,7 +183,8 @@ func (h *UserDialogHandler) AddEmailAccountHandler(inMsg *tgbotapi.Message, user
 		boxHandler := NewEmailBoxHandler(h.newEmailAccount, user)
 		go boxHandler.StartFetchingEmails()
 		user.emailBoxHandlers = append(user.emailBoxHandlers, boxHandler)
-		msgText := fmt.Sprintf("Successfully added update timeout.\nDon't forget to use /changepatterns comamnd to setup email patterns")
+		msgText := fmt.Sprintf("Successfully added update timeout.\nAccount created" +
+			"\nDon't forget to use /changepatterns comamnd to setup email patterns")
 		h.commandFinished = true
 		return h.makeTGMessage(msgText, user)
 	}
@@ -414,9 +422,6 @@ func (h *UserDialogHandler) ChangePatternsHandler(msg string, user *StoredUser) 
 			if userPattern.FromPersonalName != "" {
 				patternStr = "From person name: " + userPattern.FromPersonalName
 			}
-			if userPattern.ContentKeyword != "" {
-				patternStr = "With pattern in content: " + userPattern.ContentKeyword
-			}
 			idStr := "pid_" + strconv.Itoa(userPattern.ID)
 			patternButtons = append(patternButtons, tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(patternStr, idStr)))
@@ -457,9 +462,6 @@ func (h *UserDialogHandler) ShowPatternHandler(msg string, user *StoredUser) (*t
 			}
 			if uPattern.FromPersonalName != "" {
 				respStr += "person name: " + uPattern.FromPersonalName
-			}
-			if uPattern.ContentKeyword != "" {
-				respStr += "keyword in content: " + uPattern.ContentKeyword
 			}
 			break
 		}
