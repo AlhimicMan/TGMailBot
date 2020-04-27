@@ -12,13 +12,15 @@ import (
 
 //EmailBoxHandler used for handling email checks and sending notifications to user
 type EmailBoxHandler struct {
-	eAccount     *StoredEmailAccount
-	user         *StoredUser
-	lastMsgId    uint32
-	lastMsgTime  int64
-	isRestart    bool
-	connectionOk bool
-	stop         chan struct{}
+	eAccount           *StoredEmailAccount
+	user               *StoredUser
+	lastMsgId          uint32
+	lastMsgTime        int64
+	isRestart          bool
+	connectionOk       bool
+	imapRetriesCounter int
+	authRetriesCounter int
+	stop               chan struct{}
 }
 
 func NewEmailBoxHandler(eAccount *StoredEmailAccount, user *StoredUser) *EmailBoxHandler {
@@ -70,24 +72,40 @@ func (handler *EmailBoxHandler) FetchNewEmails() {
 	c, err := client.DialTLS(handler.eAccount.imapHost, nil)
 	errMsg := ""
 	if err != nil {
-		handler.eAccount.isActive = false
-		errMsg = fmt.Sprintf("Error connecting to imap server: %s", handler.eAccount.imapHost)
-		handler.SendMessageToUser(errMsg)
-		handler.connectionOk = false
+		log.Printf("Error connecting to imap server %s. %v", handler.eAccount.imapHost, err)
+		handler.imapRetriesCounter += 1
+		if handler.imapRetriesCounter == 3 {
+			handler.eAccount.isActive = false
+			errMsg = fmt.Sprintf("Error connecting to imap server: %s after %d retries",
+				handler.eAccount.imapHost,
+				handler.imapRetriesCounter)
+			handler.SendMessageToUser(errMsg)
+			handler.connectionOk = false
+		}
+
 		return
 	}
+	handler.imapRetriesCounter = 0
 
 	// Don't forget to logout
 	defer c.Logout()
 
 	// Login
 	if err := c.Login(handler.eAccount.login, handler.eAccount.password); err != nil {
-		handler.eAccount.isActive = false
-		errMsg = fmt.Sprintf("Error authenticating in account: %s", handler.eAccount.login)
-		handler.connectionOk = false
-		handler.SendMessageToUser(errMsg)
+		log.Printf("Error authenticating in account %s. %v", handler.eAccount.login, err)
+		handler.authRetriesCounter += 1
+		if handler.authRetriesCounter == 3 {
+			handler.eAccount.isActive = false
+			errMsg = fmt.Sprintf("Error authenticating in account: %s after %d retries",
+				handler.eAccount.login,
+				handler.authRetriesCounter)
+			handler.connectionOk = false
+			handler.SendMessageToUser(errMsg)
+		}
+
 		return
 	}
+	handler.authRetriesCounter = 0
 
 	if !handler.connectionOk {
 		handler.connectionOk = true
