@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"github.com/emersion/go-imap"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -195,11 +197,11 @@ func TestAddingAccount(t *testing.T) {
 			resultMsgText: "Invalid value for update frequency 1min",
 		},
 		{
-			textMessages:  []string{AddAccount, newAccount.login, newAccount.imapHost, newAccount.password, "1"},
+			textMessages:  []string{AddAccount, newAccount.login, newAccount.imapHost, newAccount.password, strconv.Itoa(newAccount.updateT)},
 			resultMsgText: "Account created",
 		},
 		{
-			textMessages:  []string{AddAccount, newAccount.login, newAccount.imapHost, newAccount.password, "1", AddAccount, newAccount.login, newAccount.imapHost},
+			textMessages:  []string{AddAccount, newAccount.login, newAccount.imapHost, newAccount.password, strconv.Itoa(newAccount.updateT), AddAccount, newAccount.login, newAccount.imapHost},
 			resultMsgText: "You already have account with this email for this host",
 		},
 	}
@@ -221,7 +223,81 @@ func TestAddingAccount(t *testing.T) {
 			lastMsgText = outMsg.Text
 		}
 		if !strings.Contains(lastMsgText, tCase.resultMsgText) {
-			t.Errorf("[%d] Text mesmatch.\nWant: %s\nHave:%s", i, tCase.resultMsgText, lastMsgText)
+			t.Errorf("[%d] Text mismatch.\nWant: %s\nHave:%s", i, tCase.resultMsgText, lastMsgText)
 		}
 	}
+}
+
+func TestUserDialogHandler_ListAccountsHandler(t *testing.T) {
+	bot = &tgbotapi.BotAPI{} //Bad idea, we could receive errors in deleting email
+
+	type tCase struct {
+		textMessages  []string
+		resultMsgText string //Must contain, not match
+		inListStr     string
+	}
+	newAccount1 := StoredEmailAccount{
+		id:       0,
+		imapHost: "imap.test.com",
+		login:    "test@test.com",
+		password: "Test123",
+		updateT:  3,
+		isActive: false,
+	}
+	newAccount2 := StoredEmailAccount{
+		id:       0,
+		imapHost: "imap.test2.com",
+		login:    "test2@test2.com",
+		password: "Test123",
+		updateT:  7,
+		isActive: false,
+	}
+
+	addingAccountSteps := []tCase{
+		{
+			textMessages:  []string{AddAccount, newAccount1.login, newAccount1.imapHost, newAccount1.password, strconv.Itoa(newAccount1.updateT)},
+			resultMsgText: "Account created",
+			inListStr:     fmt.Sprintf("Login: %s, timeout: %d min, active: %t\n", newAccount1.login, newAccount1.updateT, true),
+		},
+		{
+			textMessages:  []string{AddAccount, newAccount2.login, newAccount2.imapHost, newAccount2.password, strconv.Itoa(newAccount2.updateT)},
+			resultMsgText: "Account created",
+			inListStr:     fmt.Sprintf("Login: %s, timeout: %d min, active: %t\n", newAccount2.login, newAccount2.updateT, true),
+		},
+	}
+
+	dialogHandler := UserDialogHandler{
+		lastCommand:     "",
+		lastSubCommand:  "",
+		chatID:          0,
+		newEmailAccount: nil,
+		commandFinished: false,
+	}
+	var listTotalStr string
+	var wantAccounts int
+	user := &StoredUser{}
+	for i, tCase := range addingAccountSteps {
+		var lastMsgText string
+		for _, msgText := range tCase.textMessages {
+			inMsg := &tgbotapi.Message{
+				Text: msgText,
+			}
+			outMsg, _ := dialogHandler.AddEmailAccountHandler(inMsg, user)
+			lastMsgText = outMsg.Text
+		}
+
+		if !strings.Contains(lastMsgText, tCase.resultMsgText) {
+			t.Errorf("[%d] Add Text mismatch.\nWant: %s\nHave:%s", i, tCase.resultMsgText, lastMsgText)
+			t.Fail()
+		}
+		listTotalStr += tCase.inListStr
+		wantAccounts += 1
+		wantTest := fmt.Sprintf("You have %d email accounts:\n", wantAccounts) + listTotalStr
+		listMsg, _ := dialogHandler.ListAccountsHandler(user)
+		if listMsg.Text != wantTest {
+			t.Errorf("[%d] List Text mismatch.\nWant: %s\nHave:%s", i, listTotalStr, listMsg.Text)
+			t.Fail()
+		}
+	}
+
 }
